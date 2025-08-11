@@ -3,22 +3,21 @@ from pydantic import BaseModel
 import joblib
 import numpy as np
 import pandas as pd
-import os
+import uvicorn
 
-# Cargar el modelo
+# Cargar el modelo y el scaler desde los archivos .pkl
 with open('RandomForestReg_GS.pkl', 'rb') as archivo_modelo:
     modelo = joblib.load(archivo_modelo)
 
-# Usa los MISMOS nombres que espera el modelo (evita espacios si puedes)
-# O bien renombra en tiempo de ejecución (abajo te muestro cómo)
-columnas_modelo = [
-    'Alim_CuT','Alim_CuS','Alim_CuI','Ag','Pb',
-    'Fe','P80_Alim_Ro300','pH_Ro300','Tratamiento_Turno',
-    'Sol_Cit','Aire_Celdas','Nivel_Celdas'
-]
+# Lista de características en el orden esperado por el modelo
+columnas = ['Alim_CuT','Alim_CuS','Alim CuI','Ag','Pb',
+            'Fe','P80_Alim_Ro300','pH_Ro300','Tratamiento_Turno',
+            'Sol_Cit','Aire_Celdas','Nivel_Celdas']
 
+# Crear la aplicación FastAPI
 app = FastAPI(title="Prediccion Recuperación Cobre en Proceso Rougher")
 
+# Definir el modelo de datos de entrada utilizando Pydantic
 class Transaccion(BaseModel):
     Alim_CuT: float
     Alim_CuS: float
@@ -33,29 +32,24 @@ class Transaccion(BaseModel):
     Aire_Celdas: float
     Nivel_Celdas: float
 
-@app.get("/")
-def root():
-    return {"status": "ok", "msg": "API viva. Usa POST /prediccion/"}
-
+# Definir el endpoint para predicción
 @app.post("/prediccion/")
 async def predecir_recuperacion(transaccion: Transaccion):
     try:
-        # DataFrame desde el input
-        df_in = pd.DataFrame([transaccion.dict()])
-
-        # Asegurar el orden/columnas que espera el modelo
-        # (si tu modelo fue entrenado con 'Alim CuI' con espacio, renómbralo aquí)
-        # ejemplo de mapeo por si tu modelo quedó con espacios:
-        # mapeo = {"Alim_CuI": "Alim CuI"}
-        # df_in = df_in.rename(columns=mapeo)
-        # columnas_entrada = ['Alim_CuT','Alim_CuS','Alim CuI', ...]  # si así fue entrenado
-
-        df_in = df_in[columnas_modelo]
-
-        # Predicción
-        pred = modelo.predict(df_in)
-
-        return {"Recuperación Estimada (%)": float(pred[0])}
-
+        # Convertir la entrada en un DataFrame
+        datos_entrada = pd.DataFrame([transaccion.dict()], columns=columnas)
+        
+        # Realizar la predicción con el modelo cargado
+        prediccion = modelo.predict(datos_entrada)
+        
+        # Construir la respuesta
+        resultado = {
+            "Recuperación Estimada (%)": float(prediccion[0])
+        }
+        
+        return resultado
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+if __name__ == "__main__":
+    uvicorn.run(app, port=8080,host="0.0.0.0")
